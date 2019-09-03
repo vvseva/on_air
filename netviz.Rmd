@@ -1,0 +1,162 @@
+---
+title: "Networks <--> Education <--> Vizualization"
+author: "Vsevolod Suschevskiy"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+    toc: TRUE
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(tidyverse)
+library(datapasta)
+
+library(igraph)
+library(ggplot2)
+library(ggraph)
+
+library(cowplot)
+library(graphlayouts)
+```
+
+
+
+## R Markdown
+
+```{r data}
+c1w1g <-  read_csv("~/noobsQA/lasi/c1w1g.csv")
+gpa = read_csv("~/noobsQA/lasi/gpa_un.csv")
+
+gpa <- gpa %>% filter(GPA1kurs <= 11)
+```
+
+
+```{r create graph}
+graph_c1w1 <- graph_from_data_frame(c1w1g[,c(3:4)])
+
+w1 <- c1w1g %>% group_by(source_st) %>% select(source_st, Source_Program) %>% unique() %>%  summarise(program = Source_Program) %>% mutate(num = as.numeric(str_extract(source_st, "(\\d)+"))) %>% arrange(num)
+
+w1r <- c1w1g %>% group_by(target_st) %>% select(target_st, Target_Program) %>% unique() %>%  summarise(program = Target_Program) %>% mutate(num = as.numeric(str_extract(target_st, "(\\d)+"))) %>% arrange(num)
+
+w <- full_join(w1, w1r)
+
+w <- left_join(w, gpa, by = c("source_st" = "un_id"))
+
+V(graph_c1w1)$program = w$program
+V(graph_c1w1)$gpa = w$GPA1kurs
+
+nodesize <- igraph::degree(graph_c1w1, mode= "in")
+
+```
+
+```{r basic plot}
+ggraph(graph_c1w1, layout = "fr") +
+  geom_edge_link0(alpha = 0.3, show.legend = FALSE)+
+  geom_node_point(aes(color = program ), shape = "circle", show.legend = TRUE)+
+  theme_graph()
+```
+
+```{r degree}
+ggraph(graph_c1w1, layout = "fr") +
+  geom_edge_link0(alpha = 0.3,   show.legend = FALSE)+
+  geom_node_point(aes(color = program, size = nodesize), shape = "circle", stroke = 1, show.legend = TRUE)+
+  theme_graph()
+```
+
+```{r names}
+ggraph(graph_c1w1, layout = "fr") +
+  geom_edge_link0(alpha = 0.3,   show.legend = FALSE)+
+  geom_node_point(aes(color = program, size = nodesize), shape = "circle", stroke = 1, show.legend = TRUE)+
+  geom_node_text(aes(label= name), check_overlap = T, repel = F, size = 5)+
+  theme_graph()
+```
+
+```{r names and filter}
+ggraph(graph_c1w1, layout = "fr") +
+  geom_edge_link0(alpha = 0.3,   show.legend = FALSE)+
+  geom_node_point(aes(color = program, size = nodesize), shape = "circle", stroke = 1, show.legend = TRUE)+
+  geom_node_text(aes(label= name, filter = ( nodesize >= 10) ), repel  = T, size = 5)+
+  theme_graph()
+```
+
+```{r layout}
+layout <- create_layout(graph = graph_c1w1, layout = 'fr')
+
+
+ggraph(layout) +
+  geom_edge_link0(alpha = 0.3,   show.legend = FALSE)+
+  geom_node_point(aes(color = program, size = nodesize), shape = "circle", stroke = 1, show.legend = TRUE)+
+  geom_node_text(aes(label= name, filter = ( nodesize >= 10) ), repel  = T, size = 5)+
+  theme_graph()
+```
+
+
+
+```{r different metrics}
+
+nodesize_btw <- betweenness(graph_c1w1)
+btw <-  ggraph(layout) +
+  geom_edge_link0(alpha = 0.5,  arrow = ar, show.legend = FALSE, color = "gray66")+
+  geom_node_point(aes(color = nodesize_btw ),  shape = "circle", stroke = 1, show.legend = TRUE)+
+  scale_colour_gradient(low="blue", high="red") +
+  labs(title = "betwennes")+
+  theme_graph()
+
+nodesize_dgr <- degree(graph_c1w1, mode = "in")
+dgr <-  ggraph(layout) +
+  geom_edge_link0(alpha = 0.5,  arrow = ar, show.legend = FALSE, color = "gray66")+
+  geom_node_point(aes(color = nodesize_dgr ),   shape = "circle", stroke = 1, show.legend = TRUE)+
+  scale_colour_gradient(low="blue", high="red") +
+  labs(title = "degree")+
+  theme_graph()
+
+
+nodesize_cnt <- centr_degree(graph_c1w1)
+cnt <- ggraph(layout) +
+  geom_edge_link0(alpha = 0.5,  arrow = ar, show.legend = FALSE, color = "gray66")+
+  geom_node_point(aes(color = nodesize_cnt$res ),   shape = "circle", stroke = 1, show.legend = TRUE)+
+  scale_colour_gradient(low="blue", high="red") +
+  labs(title = "centrality")+
+  theme_graph()
+
+nodesize_aut <- authority_score(graph_c1w1)
+nodesize_aut <- as.numeric(nodesize_aut$vector)
+egn <- ggraph(layout) +
+  geom_edge_link0(alpha = 0.5,  arrow = ar, show.legend = FALSE, color = "gray66")+
+  geom_node_point(aes(color = nodesize_aut ),  shape = "circle", stroke = 1, show.legend = TRUE)+
+  scale_colour_gradient(low="blue", high="red") +
+  labs(title = "authority_score")+
+  theme_graph()
+
+plot_grid(btw, dgr, cnt, egn)
+
+```
+
+```{r}
+
+gpa_g <- ggraph(layout) +
+  geom_edge_link0(alpha = 0.5,  arrow = ar, show.legend = FALSE, color = "gray66")+
+  geom_node_point(aes(color = V(graph_c1w1)$gpa ),   shape = "circle", stroke = 1, show.legend = TRUE)+
+  scale_colour_gradient(low="green", high="red") +
+  labs(title = "GPA")+
+  theme_graph()
+
+nodesize_aut <- authority_score(graph_c1w1)
+nodesize_aut <- as.numeric(nodesize_aut$vector)
+egn <- ggraph(layout) +
+  geom_edge_link0(alpha = 0.5,  arrow = ar, show.legend = FALSE, color = "gray66")+
+  geom_node_point(aes(color = nodesize_aut ),  shape = "circle", stroke = 1, show.legend = TRUE)+
+  scale_colour_gradient(low="green", high="red") +
+  labs(title = "authority_score")+
+  theme_graph()
+
+plot_grid(gpa_g, egn)
+```
+
