@@ -16,6 +16,11 @@ ui <- fluidPage(
     # Application title
     titlePanel("Generation of an insult and an target"),
     
+    #language
+    selectInput(inputId = "language",
+                label = "Select a language:",
+                choices = c("General", "Glorious")),
+    
     # action Button
     actionButton("do", "Click Me"),
     
@@ -27,13 +32,29 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
     
-    names <- c(rep("Seva", 2), rep("Andre", 2), rep("Cristine", 4), rep("Nastya", 4), rep("Putin", 1))
-    insult <- read_html("http://www.insult.wiki/wiki/Insult_List")
-    insults <- insult %>% html_nodes("ol a") %>% html_attr("title") %>% substring(4)
+    # Return the requested dataset ----
+    # LanguageInput <- reactive({
+    #     switch(input$language,
+    #            "General" = "En",
+    #            "Glorius" = "Du")
+    # })
     
-    observeEvent(input$do, {
-        output$insult1 <-  renderText(str_c(sample(insults, 1), sample(names, 1), sep = " "))
+    observe({
+        if (input$language == "General" ){
+            names <- c(rep("Seva", 20), rep("Andre", 20), rep("Christina", 30), rep("Nastya", 30), rep("Putin", 1))
+            insult <- read_html("http://www.insult.wiki/wiki/Insult_List")
+            insults <- insult %>% html_nodes("ol a") %>% html_attr("title") %>% substring(4)
+        } else {
+            insult <- read_html("http://www.insult.wiki/wiki/Schimpfwort-Liste")
+            insults <- insult %>% html_nodes("ol a") %>% html_attr("title") %>% substring(4)
+            names <- str_c("Der", names,sep = " ")
+        }
+        
+        observeEvent(input$do, {
+            output$insult1 <-  renderText(str_c(sample(insults, 1), sample(names, 1), sep = " "))
+        })
     })
+
 }
 
 # Run the application 
