@@ -1,0 +1,12 @@
+name: on_air
+title: on_air
+username:
+account: vvseva
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 924342
+bundleId: 2154429
+url: https://vvseva.shinyapps.io/on_air/
+when: 1560545396.98004
+asMultiple: FALSE
+asStatic: FALSE

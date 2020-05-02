@@ -1,0 +1,374 @@
+---
+title: "Рекомендательные системы: напоминание. И снова Shiny"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(recommenderlab)
+library(bnlearn)
+library(caret)
+```
+
+```{r}
+recc_model <- Recommender(data = ratings_movies, method = "UBCF")
+
+
+?Recommender
+```
+
+
+```{r}
+library(dplyr)
+
+
+recc_predicted <- predict(object = recc_model, newdata = r[1,], n = 10)
+# recc_predicted
+# recc_predicted_name <-  as.data.frame(recc_predicted@itemLabels)
+# recc_predicted_name$index <- c(1:length(recc_predicted_name$`recc_predicted@itemLabels`))
+# recc_predicted_name$rating <- 
+# recc_predicted_name %>% dplyr::filter(index %in% recc_predicted@items[["2"]]) %>% select(`recc_predicted@itemLabels`)
+
+```
+
+
+
+Рекомендации для первого пользователя
+```{r}
+movies_user_1 <- recc_predicted@itemLabels[recc_predicted@items[[1]]]
+movies_user_1 <- as.data.frame(movies_user_1)
+movies_user_1
+#movies_user_1$ratrec <- recc_predicted@ratings[["2"]]
+#movies_user_1 %>% arrange(ratrec)
+```
+
+
+```{r}
+
+item=ratings_movies@data@Dimnames[[2]]
+
+m <- matrix(NA,
+	nrow=1, ncol=332, dimnames = list(
+	    user=561,
+	    item=ratings_movies@data@Dimnames[[2]]
+    ))
+
+m[23] <- 5
+m[54] <- 4
+m[253] <- 5
+m[6] <- 3
+m[7] <- 3
+m[8] <- 5
+## coerce into a realRatingMAtrix
+r <- as(m, "realRatingMatrix")
+r
+
+ratings_movies
+```
+
+
+#cluster 
+
+```{r}
+    data = as(ratings_movies, "data.frame")
+    movies <- data %>% group_by(item) %>% summarise(n= n()) %>% filter(n >= 110) %>% ungroup()
+    
+    data <- data %>% filter(item %in% movies$item)
+    
+    data.wide <- tidyr::spread(data, item,  rating)
+    data = as.data.frame(data)
+    preprocessParams <- preProcess(data, method=c("center", "scale", "pca"))
+    transformed.main <- predict(preprocessParams, data)
+    transformed.wide <- tidyr::spread(transformed.main, item,  rating)
+    
+    library(ggplot2)
+    library(GGally)
+    
+    transformed.wide[is.na(transformed.wide)] <- 0
+    
+    transformed.wide <- transformed.wide[,-1]
+    
+    
+    transformed.wide.t <- t(transformed.wide)
+    transformed.wide.t <- as.data.frame(transformed.wide.t)
+    rownames(transformed.wide.t) <-  colnames(transformed.wide)
+    
+    km.out = kmeans(transformed.wide.t, 9, nstart = 1)
+    table(km.out$cluster)
+    
+    transformed.wide.t$cluster <- factor(km.out$cluster)
+    transformed.wide.t$name <- colnames(transformed.wide)
+
+    summary(transformed.wide.t$cluster)
+    
+    transformed.wide.t %>% filter(cluster == 1) %>% select(name)
+```
+
+#topic modelling
+```{r}
+library(tidyr)
+library(stringr)
+
+data_text1 = as(ratings_movies, "data.frame")
+data_text <- data_text1 %>% filter(rating >= 4 ) %>% mutate(movie = item) %>% select(-rating)
+data_text_neg <- data_text1 %>% filter(rating < 4 ) %>% mutate(movie = item) %>% select(-rating)
+
+
+
+#data_text_2 <- data_text %>% group_by(user) %>% unite(item, sep = " ", remove = T)
+
+data_text.wide_spaces <- tidyr::spread(data_text, item,  movie) %>% unite(all_movies, -user, sep = " ", remove = T) 
+data_text.wide_spaces$all_movies <- str_remove_all(data_text.wide$all_movies, "NA")
+
+
+data_text$movie <- str_replace_all(data_text$movie, " ", "_")
+data_text$movie <- str_replace_all(data_text$movie, "`", "")
+data_text$movie <- str_replace_all(data_text$movie, "'", "")
+data_text$movie <- str_replace_all(data_text$movie, "_the_", "")
+data_text$movie <- str_replace_all(data_text$movie, "_a_", "")
+data_text$movie <- str_replace_all(data_text$movie, "_", "")
+
+data_text_neg$movie <- str_replace_all(data_text_neg$movie, " ", "_")
+data_text_neg$movie <- str_replace_all(data_text_neg$movie, "`", "")
+data_text_neg$movie <- str_replace_all(data_text_neg$movie, "'", "")
+data_text_neg$movie <- str_replace_all(data_text_neg$movie, ".", "")
+data_text_neg$movie <- str_replace_all(data_text_neg$movie, "_the_", "")
+data_text_neg$movie <- str_replace_all(data_text_neg$movie, "_a_", "")
+
+
+data_text.wide <- tidyr::spread(data_text, item,  movie) %>% unite(all_movies, -user, sep = " ", remove = T) %>% mutate(rat = "POS")
+
+data_text_neg.wide <- tidyr::spread(data_text_neg, item,  movie) %>% unite(all_movies, -user, sep = " ", remove = T) %>% mutate(rat = "NEG")
+```
+
+
+```{r}
+data_text.wide$all_movies <- str_remove_all(data_text.wide$all_movies, "NA")
+data_text_neg.wide$all_movies <- str_remove_all(data_text_neg.wide$all_movies, "NA")
+```
+
+
+```{r}
+library(mallet)
+library(dplyr)
+library(stopwords)
+library(readr)
+write_lines(stopwords("en"), "stopwords.txt")
+```
+
+As a first step, mallet has to process documents texts to tokenize texts
+and to collect usage statistics. Document IDs and Document contents
+should be passed to it as character vectors. Note, that doc ids should
+be strings, not numbers, hence `as.character`.
+
+
+```{r}
+mallet.instances <- mallet.import(id.array=as.character(data_text.wide$user),
+                                  text.array=data_text.wide$all_movies,
+                                  stoplist.file="stopwords.txt")
+```
+
+
+```{r}
+topic.model <- MalletLDA(num.topics=12) # number of topics
+topic.model$loadDocuments(mallet.instances) 
+topic.model$setAlphaOptimization(20, 50) # optimizing hyperparameters
+```
+
+Next we collect some statistics about the dictionary and frequency of
+tokens for later use.
+
+```{r}
+vocabulary <- topic.model$getVocabulary() # corpus dictionary
+word.freqs <- mallet.word.freqs(topic.model) # frequency table
+## top frequent words (by doc frequency)
+word.freqs %>% arrange(desc(doc.freq)) %>% head(10)
+```
+
+```{r}
+topic.model$train(500)
+```
+
+Selecting the best topic for each token in 10 iterations.
+
+```{r}
+topic.model$maximize(10)
+```
+
+```{r}
+doc.topics <- mallet.doc.topics(topic.model, smoothed=TRUE, normalized=TRUE)
+```
+
+Word-topics table.
+
+```{r}
+topic.words <- mallet.topic.words(topic.model, smoothed=TRUE, normalized=TRUE)
+```
+
+Topic labels (3 top words)
+
+```{r}
+topic.labels <- mallet.topic.labels(topic.model, topic.words, 10)
+```
+
+
+
+Doc-topics table.
+
+```{r}
+doc.topics <- mallet.doc.topics(topic.model, smoothed=TRUE, normalized=TRUE)
+doc.topics_d <- as.data.frame(doc.topics)
+doc.topics_v <- doc.topics_d[1,]
+doc.topics_v <- as.numeric(doc.topics_v)
+
+library(Hmisc)
+
+my_corr <- function(x) {
+  cor(doc.topics_v, as.numeric(x), method="spearman")
+}
+
+doc.topics_d$corrr <-  apply(doc.topics_d, 1, my_corr)
+
+pred_num <- as.numeric(doc.topics_d %>% mutate(user =  row_number()) %>% filter(corrr == max(corrr)) %>% select(user))
+
+
+nice_recc <- data_text_all %>% filter(user == pred_num, rat == "POS") %>% select(all_movies)
+```
+
+Word-topics table.
+
+```{r}
+topic.words <- mallet.topic.words(topic.model, smoothed=TRUE, normalized=TRUE)
+```
+
+Topic labels (3 top words)
+
+```{r}
+topic.labels <- mallet.topic.labels(topic.model, topic.words, 15)
+```
+
+### Results Analysis: a Common Way
+
+Inspect the top-10 words for each topic and guess what they are about.
+
+```{r}
+for (k in 1:nrow(topic.words)) {
+    top <- paste(mallet.top.words(topic.model, topic.words[k,], 10)$words,collapse=" ")
+    cat(paste(k, top, "\n"))
+}
+```
+
+Inspect the first few documents with a given topic weight more than
+5%. We will define a function that does that for us.
+
+```{r}
+top.docs <- function(doc.topics, topic, docs, top.n=10) {
+    head(docs[order(-doc.topics[,topic])], top.n)
+}
+```
+
+An example:
+
+```{r}
+top.docs(doc.topics, 15, data_text.wide_spaces$all_movies)
+```
+
+Visualizing topic similarity (hierarchical clustering) of topics.
+
+Similarity by topics co-ocurrence in documents.
+
+```{r}
+plot(mallet.topic.hclust(doc.topics, topic.words, 0), labels=topic.labels)
+```
+
+Similarity by the set of words in the topics.
+
+```{r}
+plot(mallet.topic.hclust(doc.topics, topic.words, 1), labels=topic.labels)
+```
+
+Balanced similarity by words and documents.
+
+```{r}
+plot(mallet.topic.hclust(doc.topics, topic.words, 0.5), labels=topic.labels)
+```
+
+## LDA: Interactive Visualization
+
+Install the required packages and load them.
+
+```{r eval=FALSE}
+install.packages("LDAvis")
+install.packages("servr")
+```
+
+```{r}
+library(LDAvis)
+library(servr)
+```
+
+To create this interactive visualization, the information on the
+length of all documents (in words) is required. We will count words
+using `str_count` function from `stringr` package.
+
+```{r}
+library(stringr)
+doc.length <- str_count(data_text.wide$all_movies, boundary("word"))
+doc.length[doc.length==0] <- 0.000001 # avoid division by zero
+```
+
+Visualization setup.
+
+```{r}
+json <- createJSON(phi = topic.words, theta=doc.topics, doc.length=doc.length, vocab=vocabulary, term.frequency=word.freqs$term.freq)
+```
+
+Launch interactive interface.
+
+```{r eval=FALSE}
+serVis(json, out.dir="lda50", open.browser=TRUE)
+```
+
+### STM: Data preparation
+
+We prepare the data for modeling as a dfm (using quanteda package
+tools).
+
+```{r}
+data_text_all <- rbind(data_text.wide, data_text_neg.wide)
+data_text_all <- mutate(data_text_all, sent_id = row_number())
+
+library(stringr)
+library(tidytext)
+library(quanteda)
+us.dtm <- data_text_all %>%
+    unnest_tokens(word, all_movies) %>%
+    filter(! word %in% stopwords("en")) %>%
+    filter(! str_detect(word, "[0-9]+")) %>%
+    count(sent_id, word) %>%
+    cast_dfm(sent_id, word, n) %>%
+    dfm_wordstem(language = "en")
+```
+
+```{r}
+us.meta <- data_text_all %>% select(sent_id, rat, user)
+docvars(us.dtm) <- us.meta
+```
+
+```{r}
+library(stm)
+us.stm50 <- stm(us.dtm, K=20, prevalence=~rat,
+                max.em.its=50, data=us.meta,
+                init.type="Spectral", seed=8458)
+```
+
+```{r}
+library(glmnet)
+#make a plot of the topics most predictive of "rating"
+out <- topicLasso(rat ~ 1, family="binomial", data=us.meta,stmobj=us.stm50)
+#generate some in-sample predictions
+pred <- predict(out, newx=us.stm50$theta,type="link")
+?predict
+#check the accuracy of the predictions
+table(pred, us.meta$rat)
+```
+
